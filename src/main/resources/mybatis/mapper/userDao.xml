@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lunzflow.platform.dao.UserDao">
+	<select id="queryUserByGroup"
+		parameterType="org.flowable.idm.engine.impl.persistence.entity.GroupEntityImpl"
+		resultType="org.flowable.idm.engine.impl.persistence.entity.UserEntityImpl">
+		SELECT
+			aiu.ID_ as id,
+	      	aiu.DISPLAY_NAME_ as  displayName,
+	      	aiu.PWD_ as  password,
+	      	aiu.EMAIL_ as email,
+	      	aiu.FIRST_ as firstName,
+	      	aiu.LAST_  as lastName,
+	      	aiu.TENANT_ID_ as tenantId,
+	      	aiu.PICTURE_ID_ as picture
+		FROM
+			act_id_group aig
+		LEFT JOIN act_id_membership aim ON aig.ID_ = aim.GROUP_ID_
+		LEFT JOIN act_id_user aiu ON aiu.ID_ = aim.USER_ID_
+		<where>
+			<if test="id != null">
+				aig.ID_ = #{id}
+			</if>
+			<if test="id != null">
+				aig.NAME_ = #{name}
+			</if>
+		</where>
+	</select>
+	<select id="queryGroupByUser"
+		parameterType="org.flowable.idm.engine.impl.persistence.entity.UserEntityImpl"
+		resultType="org.flowable.idm.engine.impl.persistence.entity.GroupEntityImpl">
+		SELECT
+			aig.ID_ 	as id,
+		    aig.REV_ 	as revision,
+		    aig.NAME_ 	as name,
+		    aig.TYPE_ 	as type
+		FROM
+			act_id_group aig
+		LEFT JOIN act_id_membership aim ON aig.ID_ = aim.GROUP_ID_
+		LEFT JOIN act_id_user aiu ON aiu.ID_ = aim.USER_ID_
+		<where>
+			<if test="id != null">
+				aiu.ID_ = #{id}
+			</if>
+		</where>
+
+	</select>
+</mapper>
