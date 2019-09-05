@@ -28,7 +28,6 @@ public class BaseController {
 		ServletRequestAttributes servletRequestAttributes= (org.springframework.web.context.request.ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
 		HttpServletRequest request = servletRequestAttributes.getRequest();
 		return request;
-		
 	}
 	
 }

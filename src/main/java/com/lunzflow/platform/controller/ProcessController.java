@@ -1,43 +1,39 @@
 package com.lunzflow.platform.controller;
 
+import com.lunzflow.platform.core.HmXMLConstants;
+import com.lunzflow.platform.entity.ActProcessType;
+import com.lunzflow.platform.service.ActProcessTypeService;
+import com.lunzflow.platform.service.ProcessDefService;
+import com.lunzflow.platform.service.UserService;
+import com.lunzflow.platform.util.Parametermap;
+import org.apache.commons.io.IOUtils;
+import org.flowable.bpmn.model.BpmnModel;
+import org.flowable.engine.*;
+import org.flowable.engine.history.HistoricActivityInstance;
+import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.idm.engine.impl.persistence.entity.GroupEntityImpl;
+import org.flowable.idm.engine.impl.persistence.entity.UserEntityImpl;
+import org.flowable.image.ProcessDiagramGenerator;
+import org.flowable.image.impl.DefaultProcessDiagramGenerator;
+import org.flowable.task.api.Task;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.ModelAndView;
+
+import javax.imageio.ImageIO;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.ZipInputStream;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
-import com.lunzflow.platform.service.ActProcessTypeService;
-import com.lunzflow.platform.service.UserService;
-import org.apache.commons.io.IOUtils;
-import org.flowable.bpmn.model.BpmnModel;
-import org.flowable.engine.HistoryService;
-import org.flowable.engine.RepositoryService;
-import org.flowable.engine.RuntimeService;
-import org.flowable.engine.TaskService;
-import org.flowable.engine.history.HistoricProcessInstance;
-import org.flowable.engine.runtime.ProcessInstance;
-import org.flowable.idm.engine.impl.persistence.entity.GroupEntityImpl;
-import org.flowable.idm.engine.impl.persistence.entity.UserEntityImpl;
-import org.flowable.image.impl.DefaultProcessDiagramGenerator;
-import org.flowable.task.api.Task;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
-import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.ModelAndView;
-
-import com.lunzflow.platform.core.HmXMLConstants;
-import com.lunzflow.platform.entity.ActProcessType;
-import com.lunzflow.platform.service.ProcessDefService;
-import com.lunzflow.platform.util.Parametermap;
 
 @Controller
 @RequestMapping("/process")
@@ -141,18 +137,14 @@ public class ProcessController extends BaseController implements HmXMLConstants{
 		return new ModelAndView("redirect:listView");
 	}
 
-	//Request URL: http://127.0.0.1:9100/process/imageDetailPage?processId=leave:1:13c3f4b2-34c9-11e8-bdbd-4a18e9fe68f7
 	@RequestMapping(value = "/showActivityimageDetailPage", method = RequestMethod.GET)
 	public void imageDetailPage(String  taskId,HttpServletResponse response) throws IOException {
-		//model.addAttribute("imageSrc", "/process/showImage?processId="+processId);
-		//showActivityimageDetailPage
-		
+
 		Task task = taskService.createTaskQuery()
 		.taskId(taskId).singleResult();
 		String processDefinitionId = task.getProcessDefinitionId();
 		BpmnModel bpmnModel = repositoryService.getBpmnModel(processDefinitionId);
-		DefaultProcessDiagramGenerator defaultProcessDiagramGenerator
-		=new DefaultProcessDiagramGenerator();
+		DefaultProcessDiagramGenerator defaultProcessDiagramGenerator =new DefaultProcessDiagramGenerator();
 		
 		List<String> highLightedActivities=new ArrayList<>();
 		highLightedActivities.add(task.getTaskDefinitionKey());
@@ -161,12 +153,80 @@ public class ProcessController extends BaseController implements HmXMLConstants{
 		OutputStream out = response.getOutputStream();
 		copyPic(in,out);
 	}
+
+
+	@GetMapping("/genProcessDiagrams")
+	public void genProcessDiagrams(HttpServletResponse httpServletResponse, String processId) throws IOException{
+//		ProcessInstance pi = runtimeService.createProcessInstanceQuery().processInstanceId(processId).singleResult();
+//		//流程走完的不显示图
+//		if (pi == null) {
+//			return;
+//		}
+
+		//获得活动的节点
+		List<HistoricActivityInstance> historyProcess =  historyService.createHistoricActivityInstanceQuery().processInstanceId(processId).orderByHistoricActivityInstanceStartTime().asc().list();
+
+		List<String> activityIds = new ArrayList<>();
+		List<String> flows = new ArrayList<>();
+		//获取流程图
+		BpmnModel bpmnModel = repositoryService.getBpmnModel(processId);
+		for (HistoricActivityInstance hi : historyProcess) {
+			String activityType = hi.getActivityType();
+			if (activityType.equals("sequenceFlow") || activityType.equals("exclusiveGateway")) {
+				flows.add(hi.getActivityId());
+			} else if (activityType.equals("userTask") || activityType.equals("startEvent")) {
+				activityIds.add(hi.getActivityId());
+			}
+		}
+		List<Task> tasks = taskService.createTaskQuery().processInstanceId(processId).list();
+		for (Task task : tasks) {
+			activityIds.add(task.getTaskDefinitionKey());
+		}
+		ProcessEngineConfiguration engConf = ProcessEngineConfiguration.createProcessEngineConfigurationFromResourceDefault();
+		//定义流程画布生成器
+		ProcessDiagramGenerator processDiagramGenerator = engConf.getProcessDiagramGenerator();
+		InputStream in = processDiagramGenerator.generateDiagram(bpmnModel, "png", activityIds, flows, engConf.getActivityFontName()
+				, engConf.getLabelFontName(), engConf.getAnnotationFontName(), engConf.getClassLoader(), 1.0, true);
+
+		// 设置响应的类型格式为图片格式
+		httpServletResponse.setContentType("image/png");
+		//禁止图像缓存。
+		httpServletResponse.setHeader("Pragma", "no-cache");
+		httpServletResponse.setHeader("Cache-Control", "no-cache");
+		httpServletResponse.setDateHeader("Expires", 0);
+
+		OutputStream out = null;
+		byte[] buf = new byte[1024];
+		int legth = 0;
+		try {
+
+			out = httpServletResponse.getOutputStream();
+			BufferedImage buffImg = null;
+			buffImg = ImageIO.read(in);
+			ImageIO.write(buffImg, "png", out);
+
+		}catch (IOException e){
+			e.printStackTrace();
+		} finally {
+			if (in != null) {
+				in.close();
+			}
+			if (out != null) {
+				out.close();
+			}
+		}
+	}
+
+
+
+
+
+
 	@RequestMapping(value = "/imageDetailPage", method = RequestMethod.GET)
 	public Object imageDetailPage(String  processId,Model model) {
 		model.addAttribute("imageSrc", "/process/showImage?processId="+processId);
 		return "page/process/imageDetailPage";
 	}
-	//http://127.0.0.1:9100/process/showImage?processId=leave:1:13c3f4b2-34c9-11e8-bdbd-4a18e9fe68f7
 	
 	@RequestMapping(value = "/showImage", method = RequestMethod.GET)
 	public void showImage(String  processId,Model model,HttpServletRequest request,HttpServletResponse response) throws Throwable {
@@ -177,10 +237,32 @@ public class ProcessController extends BaseController implements HmXMLConstants{
 		=new DefaultProcessDiagramGenerator();
 		
 		List<String> highLightedActivities=new ArrayList<>();
-		InputStream in = defaultProcessDiagramGenerator.generateDiagram(bpmnModel, "PNG", highLightedActivities,true);
-		
+		List<String> highLightedFlows=new ArrayList<String>();
+
+		InputStream in = defaultProcessDiagramGenerator.generateDiagram(bpmnModel,
+				"PNG", highLightedActivities,highLightedFlows,"宋体","宋体","宋体",null,1.0,true);
+
 		OutputStream out = response.getOutputStream();
-		copyPic(in,out);
+
+		response.setHeader("Pragma", "no-cache");
+		response.setHeader("Cache-Control", "no-cache");
+		response.setDateHeader("Expires", 0);
+
+		try {
+			BufferedImage buffImg = null;
+			buffImg = ImageIO.read(in);
+			ImageIO.write(buffImg, "png", out);
+
+		}catch (IOException e){
+			e.printStackTrace();
+		} finally {
+			if (in != null) {
+				in.close();
+			}
+			if (out != null) {
+				out.close();
+			}
+		}
 	}
 	
 	@RequestMapping("/startFormPage")
